@@ -54,8 +54,8 @@ A minimal 6-field attestation (~200 bytes) for embedded widgets, API responses, 
 
 | Spec | Repository | Purpose |
 |------|------------|---------|
-| **VCAP** | [bkauto3/vcap-spec](https://github.com/bkauto3/vcap-spec) | Verified Commerce for Agent Protocols -- uses AIVS proof bundles for escrow settlement |
-| **ATEP** | [bkauto3/atep-spec](https://github.com/bkauto3/atep-spec) | Agent Trust & Execution Passport -- AIVS-verified sessions contribute to trust scores |
+| **VCAP** | [swarmsync-ai/vcap-spec](https://github.com/swarmsync-ai/vcap-spec) | Verified Commerce for Agent Protocols -- uses AIVS proof bundles for escrow settlement |
+| **ATEP** | [swarmsync-ai/atep-spec](https://github.com/swarmsync-ai/atep-spec) | Agent Trust & Execution Passport -- AIVS-verified sessions contribute to trust scores |
 
 Together: **AIVS** defines the proof format, **VCAP** defines the settlement protocol, **ATEP** defines the trust layer.
 
