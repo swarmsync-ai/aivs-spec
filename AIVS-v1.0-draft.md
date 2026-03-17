@@ -8,8 +8,8 @@
 | **Status** | Draft |
 | **Date** | 2026-03-14 |
 | **License** | Apache 2.0 |
-| **Authors** | bkauto3 |
-| **Repository** | https://github.com/bkauto3/Conduit |
+| **Authors** | Ben Stone (benstone@swarmsync.ai) — SwarmSync.AI |
+| **Repository** | https://github.com/swarmsync-ai/aivs-spec |
 | **Reference Implementation** | `tools/conduit_proof.py` |
 
 ---
@@ -312,7 +312,7 @@ A JSON object with the following fields:
   "chain_hash":       "a1b2c3d4...",
   "aivs_version":     "1.0",
   "generator":        "Conduit",
-  "generator_url":    "https://github.com/bkauto3/Conduit"
+  "generator_url":    "https://github.com/swarmsync-ai/aivs-spec"
 }
 ```
 
