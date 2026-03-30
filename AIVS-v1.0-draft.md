@@ -1,4 +1,4 @@
-# Agentic Integrity Verification Standard (AIVS) v1.0
+# Agentic Integrity Verification Specification (AIVS) v1.0
 
 **A self-verifiable, portable format for cryptographic proof of AI agent sessions.**
 
@@ -16,7 +16,7 @@
 
 ## Abstract
 
-The Agentic Integrity Verification Standard (AIVS) defines a portable, self-verifiable archive format for cryptographic proof of AI agent sessions. An AIVS bundle is a gzip-compressed tar archive containing a SHA-256 hash-chained audit log, an Ed25519 digital signature over the chain, a machine-readable manifest, and an embedded verification script that requires only Python 3 standard library to execute.
+The Agentic Integrity Verification Specification (AIVS) defines a portable, self-verifiable archive format for cryptographic proof of AI agent sessions. An AIVS bundle is a gzip-compressed tar archive containing a SHA-256 hash-chained audit log, an Ed25519 digital signature over the chain, a machine-readable manifest, and an embedded verification script that requires only Python 3 standard library to execute.
 
 AIVS also defines **AIVS-Micro**: a minimal 6-field attestation (~200 bytes) for continuous monitoring, embedded widgets, and API responses where a full session bundle is not required.
 
