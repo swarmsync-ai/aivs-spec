@@ -1,0 +1,229 @@
+{
+  "$comment": "Cross-implementation conformance vectors for AIVS issue #10 (hash-input canonicalization). inner_hash_vectors assert SHA-256(JCS(value)) == expectedHash, pinning the input_hash/output_hash preimage rule. row_hash_vectors assert that the strawman §2.1 length-prefix construction over the nine fields produces expectedRowHash. The §2.1 *construction* (4-byte big-endian length prefix, nine fields, fixed order, UTF-8) is taken verbatim from the strawman. The *normalization rules these vectors pin* (NFC, no NFKC/NFKD, single timestamp form, lowercase hex) are NOT yet in §2.1 — they are the consensus reached in issue #10 by @swarm-sync, @xkumakichi, and @ojongerius. This file encodes that consensus as executable bytes: if a value is right, the vector proves it; if it is wrong, the diff shows exactly where. These are input, not editor's-draft text — adopt, adapt, or reject. Each row_hash vector carries a 'form' (default NFC): the harness applies unicodedata.normalize(form, field) to string fields before the §2.1 construction, which makes NFC vs NFD deterministic regardless of how this file is stored. Vectors carrying 'prohibitedTransform' override tool_name with that transform to document the bug a non-conformant producer would introduce. Every processing rule needed to consume this file mechanically is specified in the machine-readable 'harness_contract' below — no rule is prose-only. All hashes are self-checkable via examples/test-vectors/check.py (stdlib only).",
+  "specVersion": "aivs/1.0",
+  "issue": "https://github.com/swarmsync-ai/aivs-spec/issues/10",
+  "status": "encodes #10 thread consensus; not yet ratified into §2.1",
+
+  "harness_contract": {
+    "summary": "How to process this file mechanically. A conformant harness implements exactly these rules; no processing rule is encoded only in prose.",
+    "expectedHash_format": "Every expectedHash / expectedRowHash is the literal string 'sha256:' followed by the lowercase-hex SHA-256 digest. A harness compares the full string, prefix included (as examples/test-vectors/check.py does).",
+    "inner_hash_vectors": {
+      "default_construction": "jcs",
+      "construction": {
+        "jcs": "expectedHash == sha256-hex(JCS(input)); the default when 'construction' is absent. JCS = RFC 8785. A JSON string hashes as its quoted form; binary is base64-wrapped into a JSON string by the producer before it ever reaches this layer.",
+        "empty": "expectedHash == sha256-hex of ZERO bytes (the 'output absent' sentinel, #11). 'input' is absent and MUST NOT be fed through JCS."
+      },
+      "mustEqual": "If present, this vector's expectedHash MUST equal the named vector's expectedHash (cross-impl key-order invariant)."
+    },
+    "row_hash_vectors": {
+      "construction": "For fields in order [row_id, session_id, action_type, tool_name, cost_cents, timestamp, prev_hash, input_hash, output_hash]: emit uint32_be(byteLength(utf8(field_str))) || utf8(field_str); SHA-256 the concatenation; lowercase hex. Integer fields (row_id, cost_cents) use their canonical decimal string: digits only, no decimal point, no exponent, no leading '+'.",
+      "form": "Before the construction, normalize every string field with Unicode normalization 'form'; default 'NFC'. Applying 'form' is REQUIRED, not advisory — it is what makes the NFC/NFD pair deterministic regardless of how this file is stored.",
+      "prohibitedTransform": "If present, apply this normalization to tool_name INSTEAD of 'form'. Such a vector also carries \"conformant\": false: it reproduces what a NON-conformant producer emits (the resulting collision is why #10 forbids the transform). A conformance test should treat it as a MUST-NOT, not as output to emit.",
+      "invariants": "mustDifferFrom: this expectedRowHash MUST differ from the named vector's. collidesWith: it MUST equal the named vector's."
+    }
+  },
+
+  "inner_hash_vectors": [
+    {
+      "name": "inner_hash_string_hello",
+      "rule": "preimage_is_jcs_not_raw",
+      "description": "input_hash/output_hash = SHA-256(JCS(value)). For the JSON string \"hello\", JCS is the 7 bytes \"hello\" (quotes included), NOT the 5 raw bytes. This is the load-bearing #10 resolution: it makes 'raw bytes vs UTF-8 of a string' a non-question because neither is hashed — the JSON form is. expectedHash matches the value @ojongerius posted in the #10 thread and verifies against the RFC 8785 reference implementation.",
+      "input": "hello",
+      "canonical": "\"hello\"",
+      "expectedHash": "sha256:5aa762ae383fbb727af3c7a36d4940a5b8c40a989452d2304fc958ff3f354e7a",
+      "wrongRawHash": "sha256:2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824",
+      "wrongRawNote": "An implementation that hashes the decoded 5 bytes instead of the JSON form produces this value. A conformant implementation MUST NOT."
+    },
+    {
+      "name": "inner_hash_key_order_a",
+      "rule": "jcs_key_sort",
+      "description": "JCS sorts object keys, so insertion order does not affect the hash. Companion to inner_hash_key_order_b — same logical object, different insertion order, MUST hash identically. expectedHash also matches obsigna's existing parameters_hash_ascii vector, anchoring cross-suite parity.",
+      "input": { "b": 2, "a": 1 },
+      "canonical": "{\"a\":1,\"b\":2}",
+      "expectedHash": "sha256:43258cff783fe7036d8a43033f830adfc60ec037382473548ac742b888292777"
+    },
+    {
+      "name": "inner_hash_key_order_b",
+      "rule": "jcs_key_sort",
+      "description": "Same logical object as inner_hash_key_order_a, opposite insertion order. MUST produce the identical hash; catches any implementation that hashes serialized insertion order instead of canonical order.",
+      "input": { "a": 1, "b": 2 },
+      "canonical": "{\"a\":1,\"b\":2}",
+      "expectedHash": "sha256:43258cff783fe7036d8a43033f830adfc60ec037382473548ac742b888292777",
+      "mustEqual": "inner_hash_key_order_a"
+    },
+    {
+      "name": "inner_hash_binary_base64",
+      "rule": "binary_is_base64_json_string",
+      "description": "Non-JSON (binary) values are base64-encoded into a JSON string BEFORE hashing, then JCS applies. This closes @xkumakichi's open 'raw bytes vs UTF-8' question: the input/output is always a JSON value, so binary becomes a quoted base64 string. Input here is the JSON string \"3q2+7w==\" (base64 of 0xDEADBEEF).",
+      "input": "3q2+7w==",
+      "canonical": "\"3q2+7w==\"",
+      "expectedHash": "sha256:decc318d02861ad76514f81283fd795caf96b400daa4d1e6f3f29fc04626e9d2"
+    },
+    {
+      "name": "inner_hash_no_output_sentinel",
+      "rule": "no_output_empty_sentinel",
+      "construction": "empty",
+      "description": "Cross-reference to #11: when an action has no output, output_hash is the empty-string SHA-256 sentinel e3b0c4… (SHA-256 of ZERO bytes). This is the one inner-hash value NOT produced by SHA-256(JCS(value)) — it is neither JCS(\"\") nor JCS(null) — so it carries construction:'empty' and has no 'input' field: a harness MUST hash zero bytes here, not feed anything through JCS. #11 chose this sentinel explicitly.",
+      "expectedHash": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  ],
+
+  "row_hash_vectors": [
+    {
+      "name": "row_hash_baseline",
+      "rule": "section_2_1_length_prefix",
+      "description": "A conformant first row under §2.1. The nine fields [row_id, session_id, action_type, tool_name, cost_cents, timestamp, prev_hash, input_hash, output_hash] are each emitted as 4-byte big-endian length of UTF-8 bytes, then the bytes, in this exact order; SHA-256 of the concatenation is expectedRowHash. prev_hash is 64 '0' chars for the first row per §2.2. input_hash/output_hash are the SHA-256(JCS()) of {\"url\":\"https://example.com\"} and {\"status\":200}.",
+      "row": {
+        "row_id": 1,
+        "session_id": "sess-d4e7f9a2b1c8",
+        "action_type": "tool_call",
+        "tool_name": "browser.navigate",
+        "cost_cents": 1,
+        "timestamp": "2026-04-22T00:00:00Z",
+        "prev_hash": "0000000000000000000000000000000000000000000000000000000000000000",
+        "input_hash": "5dc5c505a79bfc2eb22d0e45eff415c6ecf0c965c3d53d6e3e02c1bda74b0927",
+        "output_hash": "7cd85494eb375cc958155aca095fd0bae01e24f777c4ce4059e2edb82324618c"
+      },
+      "expectedRowHash": "sha256:1e45ed0a391e8d531de6aec8d82cb7f210fc468ad058c500d254797b72fd2199"
+    },
+    {
+      "name": "row_hash_tool_name_nfc",
+      "rule": "unicode_normalization_must_be_pinned",
+      "description": "Baseline row with tool_name 'café.fetch'; form=NFC, so the harness NFC-normalizes the field before hashing (deterministic regardless of this file's storage). §2.1 says 'UTF-8 encoding of the field's string representation' but does NOT pin a form. This pins the #10 consensus: NFC. Compare row_hash_tool_name_nfd — same logical name, NFD form, different bytes, different hash.",
+      "row": {
+        "row_id": 1, "session_id": "sess-d4e7f9a2b1c8", "action_type": "tool_call",
+        "tool_name": "café.fetch", "cost_cents": 1, "timestamp": "2026-04-22T00:00:00Z",
+        "prev_hash": "0000000000000000000000000000000000000000000000000000000000000000",
+        "input_hash": "5dc5c505a79bfc2eb22d0e45eff415c6ecf0c965c3d53d6e3e02c1bda74b0927",
+        "output_hash": "7cd85494eb375cc958155aca095fd0bae01e24f777c4ce4059e2edb82324618c"
+      },
+      "form": "NFC",
+      "expectedRowHash": "sha256:0df403ac3803ae4456776b48927005eb4bbb3ab578e908d13024f5efd02b0abc"
+    },
+    {
+      "name": "row_hash_tool_name_nfd",
+      "rule": "unicode_normalization_must_be_pinned",
+      "description": "Same logical tool_name 'café.fetch' but form=NFD, so the harness NFD-normalizes (é -> e + U+0301 combining acute) before hashing. Different bytes -> different hash. mustDifferFrom row_hash_tool_name_nfc. Proves the §2.1 silence is exploitable; the #10 fix mandates NFC and rejects this divergence.",
+      "row": {
+        "row_id": 1, "session_id": "sess-d4e7f9a2b1c8", "action_type": "tool_call",
+        "tool_name": "café.fetch", "cost_cents": 1, "timestamp": "2026-04-22T00:00:00Z",
+        "prev_hash": "0000000000000000000000000000000000000000000000000000000000000000",
+        "input_hash": "5dc5c505a79bfc2eb22d0e45eff415c6ecf0c965c3d53d6e3e02c1bda74b0927",
+        "output_hash": "7cd85494eb375cc958155aca095fd0bae01e24f777c4ce4059e2edb82324618c"
+      },
+      "form": "NFD",
+      "mustDifferFrom": "row_hash_tool_name_nfc",
+      "expectedRowHash": "sha256:34bb6a57655fb54ebcfe3b18148fcd3b305c6fc5b31d847c2b5da30de6f32a00"
+    },
+    {
+      "name": "row_hash_ligature_nfc",
+      "rule": "nfkc_nfkd_must_be_forbidden",
+      "description": "tool_name 'ﬁle_reader' (leading U+FB01 ﬁ ligature) under the CORRECT rule — form=NFC leaves U+FB01 unchanged (NFC does no compatibility folding). Distinct from row_hash_plain_file_reader, as it must be. This is the conformant counterpart to row_hash_nfkc_collision.",
+      "row": {
+        "row_id": 1, "session_id": "sess-d4e7f9a2b1c8", "action_type": "tool_call",
+        "tool_name": "ﬁle_reader", "cost_cents": 1, "timestamp": "2026-04-22T00:00:00Z",
+        "prev_hash": "0000000000000000000000000000000000000000000000000000000000000000",
+        "input_hash": "5dc5c505a79bfc2eb22d0e45eff415c6ecf0c965c3d53d6e3e02c1bda74b0927",
+        "output_hash": "7cd85494eb375cc958155aca095fd0bae01e24f777c4ce4059e2edb82324618c"
+      },
+      "form": "NFC",
+      "mustDifferFrom": "row_hash_plain_file_reader",
+      "expectedRowHash": "sha256:b03fb3f10a8a0129203f2c116dacbdc9ccea80b8e079f64d341f71843a8375ae"
+    },
+    {
+      "name": "row_hash_plain_file_reader",
+      "rule": "nfkc_nfkd_must_be_forbidden",
+      "description": "tool_name 'file_reader' (plain ASCII), hashed as given. Reference partner for the collision demonstrator: under the prohibited NFKC transform the ligature in row_hash_ligature_nfc collapses to these same bytes and produces this same hash — see row_hash_nfkc_collision.",
+      "row": {
+        "row_id": 1, "session_id": "sess-d4e7f9a2b1c8", "action_type": "tool_call",
+        "tool_name": "file_reader", "cost_cents": 1, "timestamp": "2026-04-22T00:00:00Z",
+        "prev_hash": "0000000000000000000000000000000000000000000000000000000000000000",
+        "input_hash": "5dc5c505a79bfc2eb22d0e45eff415c6ecf0c965c3d53d6e3e02c1bda74b0927",
+        "output_hash": "7cd85494eb375cc958155aca095fd0bae01e24f777c4ce4059e2edb82324618c"
+      },
+      "expectedRowHash": "sha256:b6a99f7367042e3f4ee7d9ea9fcbc6b6d0cad0184ae5e961f0d96b78298e0852"
+    },
+    {
+      "name": "row_hash_nfkc_collision",
+      "rule": "nfkc_nfkd_must_be_forbidden",
+      "description": "THE DANGEROUS CASE, shown as a transform to make the bug explicit. tool_name input is the ligature '\\ufb01le_reader'; prohibitedTransform 'NFKC' is applied BEFORE hashing (this is what a non-conformant producer does). NFKC(U+FB01...) -> 'file_reader', so expectedRowHash equals row_hash_plain_file_reader — two DISTINCT action names made indistinguishable at the hash layer. collidesWith row_hash_plain_file_reader. This is why #10 must FORBID compatibility normalization (NFKC/NFKD), not merely recommend NFC. A conformant producer hashes the ligature as-is (row_hash_ligature_nfc) and never reaches this hash.",
+      "row": {
+        "row_id": 1, "session_id": "sess-d4e7f9a2b1c8", "action_type": "tool_call",
+        "tool_name": "ﬁle_reader", "cost_cents": 1, "timestamp": "2026-04-22T00:00:00Z",
+        "prev_hash": "0000000000000000000000000000000000000000000000000000000000000000",
+        "input_hash": "5dc5c505a79bfc2eb22d0e45eff415c6ecf0c965c3d53d6e3e02c1bda74b0927",
+        "output_hash": "7cd85494eb375cc958155aca095fd0bae01e24f777c4ce4059e2edb82324618c"
+      },
+      "prohibitedTransform": "NFKC",
+      "conformant": false,
+      "collidesWith": "row_hash_plain_file_reader",
+      "expectedRowHash": "sha256:b6a99f7367042e3f4ee7d9ea9fcbc6b6d0cad0184ae5e961f0d96b78298e0852"
+    },
+    {
+      "name": "row_hash_timestamp_z",
+      "rule": "single_timestamp_form_must_be_pinned",
+      "description": "timestamp '2026-04-22T00:00:00Z'. The three timestamp vectors carry the same instant in three valid ISO-8601 renderings and produce three distinct hashes. §2.1 says 'ISO 8601', which admits all three, so the spec must pin one canonical form (RFC 3339, 'Z', no fractional seconds unless present). This vector is the proposed canonical form.",
+      "row": {
+        "row_id": 1, "session_id": "sess-d4e7f9a2b1c8", "action_type": "tool_call",
+        "tool_name": "browser.navigate", "cost_cents": 1, "timestamp": "2026-04-22T00:00:00Z",
+        "prev_hash": "0000000000000000000000000000000000000000000000000000000000000000",
+        "input_hash": "5dc5c505a79bfc2eb22d0e45eff415c6ecf0c965c3d53d6e3e02c1bda74b0927",
+        "output_hash": "7cd85494eb375cc958155aca095fd0bae01e24f777c4ce4059e2edb82324618c"
+      },
+      "expectedRowHash": "sha256:1e45ed0a391e8d531de6aec8d82cb7f210fc468ad058c500d254797b72fd2199"
+    },
+    {
+      "name": "row_hash_timestamp_millis",
+      "rule": "single_timestamp_form_must_be_pinned",
+      "description": "Same instant as row_hash_timestamp_z, rendered '2026-04-22T00:00:00.000Z'. mustDifferFrom row_hash_timestamp_z. Trailing-zero fractional seconds change the hash unless the form is pinned.",
+      "row": {
+        "row_id": 1, "session_id": "sess-d4e7f9a2b1c8", "action_type": "tool_call",
+        "tool_name": "browser.navigate", "cost_cents": 1, "timestamp": "2026-04-22T00:00:00.000Z",
+        "prev_hash": "0000000000000000000000000000000000000000000000000000000000000000",
+        "input_hash": "5dc5c505a79bfc2eb22d0e45eff415c6ecf0c965c3d53d6e3e02c1bda74b0927",
+        "output_hash": "7cd85494eb375cc958155aca095fd0bae01e24f777c4ce4059e2edb82324618c"
+      },
+      "mustDifferFrom": "row_hash_timestamp_z",
+      "expectedRowHash": "sha256:696dacc2741cfbe490b57ea014c226a08d92dfb2892051b47dbfb22f15b018f1"
+    },
+    {
+      "name": "row_hash_timestamp_offset",
+      "rule": "single_timestamp_form_must_be_pinned",
+      "description": "Same instant as row_hash_timestamp_z, rendered '2026-04-22T00:00:00+00:00'. mustDifferFrom row_hash_timestamp_z. Numeric-offset vs 'Z' changes the hash unless the form is pinned.",
+      "row": {
+        "row_id": 1, "session_id": "sess-d4e7f9a2b1c8", "action_type": "tool_call",
+        "tool_name": "browser.navigate", "cost_cents": 1, "timestamp": "2026-04-22T00:00:00+00:00",
+        "prev_hash": "0000000000000000000000000000000000000000000000000000000000000000",
+        "input_hash": "5dc5c505a79bfc2eb22d0e45eff415c6ecf0c965c3d53d6e3e02c1bda74b0927",
+        "output_hash": "7cd85494eb375cc958155aca095fd0bae01e24f777c4ce4059e2edb82324618c"
+      },
+      "mustDifferFrom": "row_hash_timestamp_z",
+      "expectedRowHash": "sha256:422f5dca7f5a52f1048dabc8d9d07c843b0282425a5c38180d655e653a1715ab"
+    },
+    {
+      "name": "row_hash_uppercase_hex_field",
+      "rule": "hash_fields_must_be_lowercase_hex",
+      "description": "Baseline row but with input_hash supplied as UPPERCASE hex. Because input_hash/output_hash enter the row hash as their string representation, hex case changes the row_hash. mustDifferFrom row_hash_baseline. #10 consensus: hashes are lowercase hex everywhere; this pins that the field strings feeding the row hash are lowercase too.",
+      "row": {
+        "row_id": 1, "session_id": "sess-d4e7f9a2b1c8", "action_type": "tool_call",
+        "tool_name": "browser.navigate", "cost_cents": 1, "timestamp": "2026-04-22T00:00:00Z",
+        "prev_hash": "0000000000000000000000000000000000000000000000000000000000000000",
+        "input_hash": "5DC5C505A79BFC2EB22D0E45EFF415C6ECF0C965C3D53D6E3E02C1BDA74B0927",
+        "output_hash": "7cd85494eb375cc958155aca095fd0bae01e24f777c4ce4059e2edb82324618c"
+      },
+      "mustDifferFrom": "row_hash_baseline",
+      "expectedRowHash": "sha256:2c3f34f646685bf7f70090f0f6adf2e8fab5581e749a700511e206ee8b934e94"
+    }
+  ],
+
+  "notes_for_implementers": [
+    "row_hash construction (verbatim from strawman §2.1): for each of the nine fields in fixed order [row_id, session_id, action_type, tool_name, cost_cents, timestamp, prev_hash, input_hash, output_hash], emit struct.pack('>I', len(utf8_bytes)) then the UTF-8 bytes; SHA-256 the concatenation; lowercase hex. row_id and cost_cents are the decimal string of the integer.",
+    "input_hash/output_hash construction (#10 consensus): SHA-256(JCS(value)) where value is always a JSON value. JCS = RFC 8785. Text hashes as its quoted JSON-string form; binary is base64-wrapped into a JSON string first. Result is lowercase hex.",
+    "Each row_hash vector carries a 'form' (default NFC). The harness applies unicodedata.normalize(form, field) to string fields before the §2.1 construction, so NFC vs NFD is deterministic regardless of how this file is stored. A spec adopting #10 would mandate one form (NFC) at production time and verifiers would normalize identically.",
+    "Normalization rules these vectors pin, NOT yet in §2.1: (1) NFC, or explicitly no normalization, on all string fields; (2) NFKC/NFKD PROHIBITED — they collide distinct values (row_hash_nfkc_collision); (3) exactly one timestamp form (RFC 3339, 'Z'); (4) lowercase hex for all hash strings.",
+    "Vectors with prohibitedTransform document a non-conformant producer: apply the named transform to tool_name BEFORE the §2.1 construction to reproduce expectedRowHash. They exist to prove a divergence/collision, not to be emitted.",
+    "Machine-readable invariant fields (see harness_contract): mustEqual / mustDifferFrom / collidesWith reference another vector by name; construction selects the inner-hash preimage rule (jcs|empty); form / prohibitedTransform select Unicode normalization for row_hash; conformant:false flags a demonstration of a forbidden producer behaviour.",
+    "All hashes are self-checked by `python3 examples/test-vectors/check.py` (stdlib only, runs on 3.8+, mirroring §1.2). The 'hello' inner-hash (5aa762ae…) matches the value posted in issue #10 and the RFC 8785 reference implementation; the key-order inner-hash (43258cff…) matches obsigna's existing parameters_hash_ascii vector, and all hash assertions are reproduced independently by obsigna's Go, TypeScript, and Python canonicalizers.",
+    "This file encodes the #10 thread consensus, not current §2.1 text. It is contributed as input. If a vector is wrong, the failing assertion shows precisely which decision is contested."
+  ]
+}
